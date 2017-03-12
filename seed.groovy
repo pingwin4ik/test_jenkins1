@@ -31,7 +31,7 @@ job("${folderName}/test") {
 
 listView('my-view') {
     jobs {
-        name("${folderName}")
+        name("${folderName}/test")
     }
 }
 
