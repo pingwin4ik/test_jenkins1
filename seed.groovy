@@ -12,7 +12,7 @@ folder(folderName) {
     description('Folder for project Test')
 }
 
-job('${folderName}/test') {
+job("${folderName}/test") {
     logRotator(-1, 10)
     scm {
         github('kv020devops/jenkins', 'master')
