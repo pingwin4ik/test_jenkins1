@@ -18,7 +18,8 @@ job("${folderName}/test") {
         github('kv020devops/jenkins', 'master')
     }
     triggers {
-        githubPush()
+       // githubPush()
+        scm('H/2 * * * *')
     }
 //    steps {
 //
