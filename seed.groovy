@@ -29,14 +29,12 @@ job("${folderName}/test") {
 //    }
 }
 
-listView("${folderName}") {
-    jobs {
-        name('test')
-
-    }
-
-    columns {
-        status()
-        weather()
-    }
+istView("${folderName}") {
+        description("All unstable jobs for ${folderName}")
+        filterBuildQueue()
+        filterExecutors()
+        jobs {
+            name('test')
+            regex(/project_tes-.+/)
+        }
 }
