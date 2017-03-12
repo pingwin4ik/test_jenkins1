@@ -29,7 +29,7 @@ job("${folderName}/test") {
 //    }
 }
 
-istView("${folderName}") {
+listView("${folderName}") {
         description("All unstable jobs for ${folderName}")
         filterBuildQueue()
         filterExecutors()
