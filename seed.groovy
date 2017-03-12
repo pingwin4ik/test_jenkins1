@@ -3,7 +3,7 @@ import groovy.io.FileType
 import hudson.FilePath
 import hudson.*
 
-def folderName = 'project_tes'
+def folderName = 'project_test'
 def pathWorkspace = '/var/lib/jenkins/workspace/${folderName}'
 
 
@@ -12,7 +12,7 @@ folder(folderName) {
     description('Folder for project Test')
 }
 
-job("${folderName}/test") {
+job("${folderName}/cloneFromGit") {
     logRotator(-1, 10)
     scm {
         github('kv020devops/jenkins', 'master')
@@ -24,14 +24,23 @@ job("${folderName}/test") {
 //    steps {
 //
 //        dsl {
-//            external "test/jobs/first.groovy"
+//            external "test/jobs/createBuldTestJobs.groovy"
 //        }
 //    }
 }
+job("${folderName}/createBuldTestJobs") {
+    logRotator(-1, 10)
+    scm {
+        github('kv020devops/test_jenkins1', 'master')
+    }
+    triggers {
+        // githubPush()
+        scm('H/2 * * * *')
+    }
+    steps {
 
-listView("${folderName}/my-view") {
-    jobs {
-        regex(".*")
+        dsl {
+            external "${folderName}/jobs/createBuldTestJobs.groovy"
+        }
     }
 }
-
