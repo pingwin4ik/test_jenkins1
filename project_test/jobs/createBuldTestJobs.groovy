@@ -5,7 +5,7 @@ import hudson.*
 
 
 
-job('test') {
+job("${pathWorkspace}/${folderName}/test") {
     logRotator(-1, 10)
 
     triggers {
@@ -13,7 +13,7 @@ job('test') {
         scm('H/2 * * * *')
     }
     steps{
-        shell 'ls -al ${pathWorkspace}'
+        shell "ls -al ${pathWorkspace}/${folderName}"
     }
 //    steps {
 //
