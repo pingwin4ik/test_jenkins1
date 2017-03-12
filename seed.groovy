@@ -29,9 +29,9 @@ job("${folderName}/test") {
 //    }
 }
 
-listView('my-view') {
+listView("${folderName}/my-view") {
     jobs {
-        name("${folderName}/test")
+        regex(".*")
     }
 }
 
