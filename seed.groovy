@@ -4,13 +4,15 @@ import hudson.FilePath
 import hudson.*
 
 def folderName = 'project_test'
-def pathWorkspace = '/var/lib/jenkins/workspace/${folderName}'
 
 
 folder(folderName) {
     displayName('Project Test')
     description('Folder for project Test')
 }
+
+def pathWorkspace = "/var/lib/jenkins/workspace/${folderName}"
+
 
 job("${folderName}/cloneFromGit") {
     logRotator(-1, 10)
