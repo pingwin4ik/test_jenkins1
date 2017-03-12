@@ -28,3 +28,15 @@ job("${folderName}/test") {
 //        }
 //    }
 }
+
+listView("${folderName}") {
+    jobs {
+        name("${folderName}/test")
+
+    }
+
+    columns {
+        status()
+        weather()
+    }
+}
