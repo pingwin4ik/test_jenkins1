@@ -34,4 +34,4 @@ listView('my-view') {
         name("${folderName}")
     }
 }
-}
+
