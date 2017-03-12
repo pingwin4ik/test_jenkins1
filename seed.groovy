@@ -34,7 +34,7 @@ listView("${folderName}") {
         filterBuildQueue()
         filterExecutors()
         jobs {
-            name('test')
+            name("${folderName}/test")
             regex(/project_tes-.+/)
         }
 }
