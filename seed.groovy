@@ -26,5 +26,4 @@ job('${folderName}/test') {
 //            external "test/jobs/first.groovy"
 //        }
 //    }
-
-
+}
