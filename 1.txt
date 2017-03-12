@@ -1,0 +1,537 @@
+#!groovy
+
+import groovy.io.FileType
+import hudson.FilePath
+import hudson.*
+
+
+def slurper = new groovy.json.JsonSlurper()
+hudson.FilePath workspace = hudson.model.Executor.currentExecutor().getCurrentWorkspace()
+jobFolders = []
+
+servicePipelines = []
+componentPipelines = []
+containerPipelines = []
+
+deployDevJobs = []
+deployQaJobs = []
+deployProdJobs = []
+
+new File("${workspace}/registry").traverse(type: FileType.DIRECTORIES, maxDepth: 0) { registryFolder ->
+  def folderName = registryFolder.getName()
+  folder(folderName)
+  jobFolders << folderName
+
+  def components = []
+  def componentsDir = new File("${workspace}/registry/${folderName}/components")
+  if (componentsDir.exists()) {
+    folder("${folderName}/component")
+    componentsDir.traverse(type: FileType.FILES, nameFilter: ~/.*\.json$/) {
+      components << slurper.parse(it)
+    }
+  }
+
+  def containers = []
+  def containersDir = new File("${workspace}/registry/${folderName}/containers")
+  if (containersDir.exists()) {
+    folder("${folderName}/container")
+    containersDir.traverse(type: FileType.FILES, nameFilter: ~/.*\.json$/) {
+      containers << slurper.parse(it)
+    }
+  }
+
+  def services = []
+  def servicesDir = new File("${workspace}/registry/${folderName}/services")
+  if (servicesDir.exists()) {
+    folder("${folderName}/service")
+    servicesDir.traverse(type: FileType.FILES, nameFilter: ~/.*\.json$/) {
+      services << slurper.parse(it)
+    }
+  }
+
+  def clusters = []
+  def clustersDir = new File("${workspace}/registry/${folderName}/clusters")
+  if (clustersDir.exists()) {
+    folder("${folderName}/environment")
+    clustersDir.traverse(type: FileType.FILES, nameFilter: ~/.*\.json$/) {
+      println it
+      clusters << slurper.parse(it)
+    }
+  }
+
+  createEnvironments(folderName, clusters)
+
+  createPipelineJobs(component: components,
+                  container: containers,
+                  service: services,
+                  folderName, clusters)
+
+  createBuildJobs(component: components,
+                  service: services,
+                  folderName)
+
+  createDockerJobs(container: containers,
+                  service: services,
+                  folderName)
+
+  createDeployJobs(container: containers,
+                  service: services,
+                  folderName, clusters)
+
+  createPromoteJobs(container: containers,
+                  service: services,
+                  folderName)
+
+}
+
+listView("Service Pipelines") {
+  description("CD pipelines for WebCakes services")
+  recurse(true)
+  jobs {
+    servicePipelines.each {
+      name(it)
+    }
+  }
+  columns {
+    status()
+    weather()
+    name()
+    lastSuccess()
+    lastFailure()
+    lastDuration()
+    buildButton()
+  }
+}
+
+listView("Component Pipelines") {
+  description("CD pipelines for WebCakes component")
+  recurse(true)
+  jobs {
+    componentPipelines.each {
+      name(it)
+    }
+  }
+  columns {
+    status()
+    weather()
+    name()
+    lastSuccess()
+    lastFailure()
+    lastDuration()
+    buildButton()
+  }
+}
+
+listView("Deploy to QA") {
+  description("Jobs to deploy to WebCakes QA")
+  recurse(true)
+  jobs {
+    deployQaJobs.each {
+      name(it)
+    }
+  }
+  columns {
+    status()
+    weather()
+    name()
+    lastSuccess()
+    lastFailure()
+    lastDuration()
+    buildButton()
+  }
+}
+
+listView("Deploy to PROD") {
+  description("Jobs to deploy to WebCakes PROD")
+  recurse(true)
+  jobs {
+    deployProdJobs.each {
+      name(it)
+    }
+  }
+  columns {
+    status()
+    weather()
+    name()
+    lastSuccess()
+    lastFailure()
+    lastDuration()
+    buildButton()
+  }
+}
+
+def createEnvironments(jobDirectory, clusters) {
+  if(clusters) {
+    clusters.each { cluster_item ->
+      cluster_item.each { cluster_name, cluster_settings ->
+        def environmentsJobName = "environments-${cluster_name}"
+        pipelineJob("${jobDirectory}/environment/${environmentsJobName}") {
+          definition {
+            cps {
+              script(readFileFromWorkspace("jobs/stages/environments.groovy"))
+              sandbox()
+            }
+            parameters {
+              stringParam("osURL", cluster_settings.osURL)
+              stringParam("osClusterName", cluster_name)
+              stringParam("osJenkinsCredentialId", cluster_settings.osJenkinsCredentialId)
+              stringParam("osDockerCredentialId", cluster_settings.osDockerCredentialId)
+              if(cluster_settings.environments) {
+                cluster_settings.environments.each { env_name, env_settings ->
+                  env_settings.each { key, value ->
+                    if(key == 'gitHubAdmins' || key == 'gitHubDevelopers') {
+                      value = value.join(',')
+                    }
+                    stringParam("environments---${env_name}---${key}", value)
+                  }
+                }
+              }
+            }
+          }
+        }
+        queue("${jobDirectory}/environment/${environmentsJobName}")
+      }
+    }
+  }
+}
+
+def createPipelineJobs(Map registries, jobDirectory, clusters) {
+  registries.each { registryType, registry ->
+    registry.each { registryItem ->
+      registryItem.each { registryItemName, settings ->
+        def pipelineJobName = "${registryType}-${registryItemName}"
+        def pipelineJobPath = "${jobDirectory}/${registryType}/${pipelineJobName}"
+        collectPipeline(pipelineJobPath, registryType)
+        pipelineJob(pipelineJobPath) {
+          //concurrentBuild(false)
+          definition {
+            cps {
+              script(readFileFromWorkspace("jobs/pipelines/${registryType}.groovy"))
+              sandbox()
+            }
+          }
+          parameters {
+            stringParam('gitRevision', '')
+            stringParam('gitTag', '')
+            stringParam("${registryType}Name", registryItemName)
+            stringParam('jobFolder', "${jobDirectory}/${registryType}")
+            settings.parameters.each { key, value ->
+              stringParam(key, value)
+            }
+            if(clusters) {
+              clusters.each { cluster_item ->
+                cluster_item.each { cluster_name, cluster_settings ->
+                  stringParam("clusters---${cluster_name}---osURL", cluster_settings.osURL)
+                  stringParam("clusters---${cluster_name}---osClusterName", cluster_name)
+                  stringParam("clusters---${cluster_name}---osJenkinsCredentialId", cluster_settings.osJenkinsCredentialId)
+                  stringParam("clusters---${cluster_name}---osDockerCredentialId", cluster_settings.osDockerCredentialId)
+                  if(cluster_settings.environments) {
+                    cluster_settings.environments.each { env_name, env_settings ->
+                      env_settings.each { key, value ->
+                        if(key == 'gitHubAdmins' || key == 'gitHubDevelopers') {
+                          value = value.join(',')
+                        }
+                        stringParam("environments---${cluster_name}---${env_name}---${key}", value)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            if (settings.versioning) {
+              stringParam('getVersionCommand', settings.versioning.getVersionCommand ?: '')
+            }
+          }
+          triggers {
+            if(registryType == 'service') {
+              scm('H/10 * * * *')
+              quietPeriod(100)
+            } else {
+              scm('* * * * *')
+            }
+          }
+
+          logRotator {
+            numToKeep(settings.parameters.buildsToKeep.toInteger())
+            artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+            daysToKeep(settings.parameters.daysToKeep.toInteger())
+            artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+          }
+        }
+
+        // convert GitHub SSH URL to GitHub path (eg. `git@github.com:company/repo.git` -> `company/repo`)
+        def githubRepoPath = settings.parameters.gitURL.tokenize(':')[1].minus('.git')
+
+        def pipelinePRJobName = "${registryType}-${registryItemName} (pull requests)"
+        job("${jobDirectory}/${registryType}/${pipelinePRJobName}") {
+          steps {
+            if(settings.parameters.checkPRScript) {
+              println("${pipelinePRJobName}: Using custom script for PR checks: ${settings.parameters.checkPRScript}")
+              shell(settings.parameters.checkPRScript)
+            }
+            else {
+              println("${pipelinePRJobName}: Using default script for PR checks")
+              shell('npm install && ' +
+                    'npm run build:prod && ' +
+                    'npm run build:urls && ' +
+                    'npm run test && ' +
+                    'npm run lint')
+            }
+          }
+          scm {
+            git {
+              remote {
+                github(githubRepoPath, 'ssh')
+                refspec('+refs/pull/*:refs/remotes/origin/pr/*')
+                credentials(settings.parameters.gitHubCredentialsId)
+              }
+              branch('${sha1}')
+            }
+          }
+          triggers {
+            githubPullRequest {
+              orgWhitelist('TheWeatherCompany')
+              cron('* * * * *')
+              triggerPhrase('/jenkins test')
+            }
+          }
+          logRotator {
+            numToKeep(settings.parameters.buildsToKeep.toInteger())
+            artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+            daysToKeep(settings.parameters.daysToKeep.toInteger())
+            artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+          }
+        }
+      }
+    }
+  }
+}
+
+def createBuildJobs(Map registries, jobDirectory) {
+  registries.each { registryType, registry ->
+    registry.each { registryItem ->
+      registryItem.each { registryItemName, settings ->
+        def buildJobName = "${registryType}-${registryItemName} (build)"
+        pipelineJob("${jobDirectory}/${registryType}/${buildJobName}") {
+          definition {
+            cps {
+              script(readFileFromWorkspace("jobs/stages/build.groovy"))
+              sandbox()
+            }
+          }
+          parameters {
+            stringParam('gitRevision', '')
+            stringParam('gitTag', '')
+            stringParam('jobFolder', "${jobDirectory}/${registryType}")
+            settings.parameters.each { key, value ->
+              stringParam(key, value)
+            }
+            if (settings.versioning) {
+              stringParam('getVersionCommand', settings.versioning.getVersionCommand)
+            }
+          }
+          logRotator {
+            numToKeep(settings.parameters.buildsToKeep.toInteger())
+            artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+            daysToKeep(settings.parameters.daysToKeep.toInteger())
+            artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+          }
+        }
+      }
+    }
+  }
+}
+
+def createDockerJobs(Map registries, jobDirectory) {
+  registries.each { registryType, registry ->
+    registry.each { registryItem ->
+      registryItem.each { registryItemName, settings ->
+        def dockerJobName = "${registryType}-${registryItemName} (docker)"
+        def buildJobName = "${registryType}-${registryItemName} (build)"
+
+        pipelineJob("${jobDirectory}/${registryType}/${dockerJobName}") {
+          definition {
+            cps {
+              script(readFileFromWorkspace("jobs/stages/docker.groovy"))
+              sandbox()
+            }
+          }
+          parameters {
+            stringParam('gitRevision', '')
+            stringParam('gitTag', '')
+            stringParam('buildJobName', buildJobName)
+            stringParam('jobFolder', "${jobDirectory}/${registryType}")
+            settings.parameters.each { key, value ->
+              stringParam(key, value)
+            }
+            if (settings.versioning) {
+              stringParam('getVersionCommand', settings.versioning.getVersionCommand)
+            }
+            stringParam('preDockerizeScript',
+                    settings.parameters.preDockerizeScript ?: '')
+            stringParam('postDockerizeScript',
+                    settings.parameters.postDockerizeScript ?: '')
+          }
+          logRotator {
+            numToKeep(settings.parameters.buildsToKeep.toInteger())
+            artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+            daysToKeep(settings.parameters.daysToKeep.toInteger())
+            artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+          }
+        }
+      }
+    }
+  }
+}
+
+def createDeployJobs(Map registries, jobDirectory, clusters) {
+  registries.each { registryType, registry ->
+    registry.each { registryItem ->
+      registryItem.each { registryItemName, settings ->
+        if(clusters) {
+          clusters.each { cluster_item ->
+            cluster_item.each { cluster_name, cluster_settings ->
+              if(cluster_settings.environments) {
+                cluster_settings.environments.each { environment, environmentSettings ->
+                  def deployJobName = "${registryType}-${registryItemName} (deploy ${environment})"
+                  def deployJobPath = "${jobDirectory}/${registryType}/${deployJobName}"
+                  def buildJobName = "${registryType}-${registryItemName} (build)"
+
+                  collectDeployJob(deployJobPath, cluster_settings.type)
+
+                  pipelineJob(deployJobPath) {
+                    definition {
+                      cps {
+                        script(readFileFromWorkspace("jobs/stages/deploy.groovy"))
+                        sandbox()
+                      }
+                    }
+                    parameters {
+                      stringParam('gitRevision', '')
+                      stringParam('gitTag', '')
+                      stringParam('buildJobName', buildJobName)
+                      stringParam('jobFolder', "${jobDirectory}/${registryType}")
+                      stringParam('environmentName', environment)
+                      stringParam('osURL', cluster_settings.osURL)
+                      stringParam('osClusterName', cluster_name)
+                      stringParam('osJenkinsCredentialId', cluster_settings.osJenkinsCredentialId)
+                      stringParam('osDockerCredentialId', cluster_settings.osDockerCredentialId)
+
+                      // allow to override parameters with env specific parameters
+                      def mergedParameters = [:]
+                      settings.parameters.each { key, value ->
+                        mergedParameters[key] = value
+                      }
+                      if(settings.environmentParameters && settings.environmentParameters[environment]) {
+                        settings.environmentParameters[environment].each { key, value ->
+                          mergedParameters[key] = value
+                        }
+                      }
+                      mergedParameters.each { key, value ->
+                        stringParam(key, value)
+                      }
+
+                      if (settings.versioning) {
+                        stringParam('getVersionCommand', settings.versioning.getVersionCommand)
+                      }
+                      def externalHostnames = ''
+                      if (settings.externalHostnames) {
+                        externalHostnames = settings.externalHostnames[environment].join(',')
+                      }
+                      stringParam('externalHostnames', externalHostnames)
+                      stringParam('preDeployScript',
+                              settings.parameters.preDeployScript ?: '')
+                      stringParam('postDeployScript',
+                              settings.parameters.postDeployScript ?: '')
+                      environmentSettings.each { key, value ->
+                        if(key == 'gitHubAdmins' || key == 'gitHubDevelopers') {
+                          value = value.join(',')
+                        }
+                        stringParam("${key}", value)
+                      }
+                    }
+                    logRotator {
+                      numToKeep(settings.parameters.buildsToKeep.toInteger())
+                      artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+                      daysToKeep(settings.parameters.daysToKeep.toInteger())
+                      artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+def createPromoteJobs(Map registries, jobDirectory) {
+  registries.each { registryType, registry ->
+    registry.each { registryItem ->
+      registryItem.each { registryItemName, settings ->
+        ['QA', 'PROD'].each { environmentType ->
+          def promoteJobName = "${registryType}-${registryItemName} (promote to ${environmentType})"
+          def promoteJobPath = "${jobDirectory}/${registryType}/${promoteJobName}"
+
+          pipelineJob(promoteJobPath) {
+            definition {
+              cps {
+                script(readFileFromWorkspace("jobs/stages/promote.groovy"))
+                sandbox()
+              }
+            }
+            parameters {
+              stringParam('gitRevision', '')
+              stringParam('gitTag', '')
+              stringParam('environmentType', environmentType)
+
+              settings.parameters.each { key, value ->
+                stringParam(key, value)
+              }
+
+              if (settings.versioning) {
+                stringParam('getVersionCommand', settings.versioning.getVersionCommand)
+              }
+            }
+            logRotator {
+              numToKeep(settings.parameters.buildsToKeep.toInteger())
+              artifactNumToKeep(settings.parameters.buildsToKeep.toInteger())
+              daysToKeep(settings.parameters.daysToKeep.toInteger())
+              artifactDaysToKeep(settings.parameters.daysToKeep.toInteger())
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+def collectPipeline(name, type) {
+  switch(type) {
+    case 'service':
+      servicePipelines << name
+      break
+    case 'component':
+      componentPipelines << name
+      break
+    case 'container':
+      containerPipelines << name
+      break
+  }
+}
+
+def collectDeployJob(name, type) {
+  switch(type) {
+    case 'DEV':
+      deployDevJobs << name
+      break
+    case 'QA':
+      deployQaJobs << name
+      break
+    case 'PROD':
+      deployProdJobs << name
+      break
+  }
+}

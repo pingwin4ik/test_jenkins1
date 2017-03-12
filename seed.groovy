@@ -29,12 +29,9 @@ job("${folderName}/test") {
 //    }
 }
 
-listView("${folderName}") {
-        description("All unstable jobs for ${folderName}")
-        filterBuildQueue()
-        filterExecutors()
-        jobs {
-            name("${folderName}/test")
-            regex(/project_tes-.+/)
-        }
+listView('my-view') {
+    jobs {
+        name("${folderName}")
+    }
+}
 }
