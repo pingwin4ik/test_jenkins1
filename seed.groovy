@@ -49,7 +49,7 @@ job("${folderName}/createBuldTestJobs") {
 pipelineJob("${folderName}-pipeline") {
     definition {
         cps {
-            script(readFileFromWorkspace("${pathWorkspace}/pipeline/first.groovy"))
+            script(readFileFromWorkspace("/var/lib/jenkins/workspace/project_test/createBuldTestJobs/project_test/pipeline/first.groovy"))
             sandbox()
         }
     }
