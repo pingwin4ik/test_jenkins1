@@ -5,7 +5,7 @@ import hudson.*
 
 
 
-job("project_test/test") {
+job("project_test/test-compile") {
     logRotator(-1, 10)
 
     triggers {
@@ -13,7 +13,7 @@ job("project_test/test") {
         scm('H/2 * * * *')
     }
     steps{
-        shell "ls -al /var/lib/jenkins/workspace/cloneFromGit"
+        shell "ls -al /var/lib/jenkins/workspace/project_test/cloneFromGit/"
     }
 //    steps {
 //
@@ -22,3 +22,40 @@ job("project_test/test") {
 //        }
 //    }
 }
+job("project_test/test") {
+    logRotator(-1, 10)
+
+    triggers {
+        // githubPush()
+        scm('H/2 * * * *')
+    }
+    steps{
+        shell "pypline /var/lib/jenkins/workspace/project_test/cloneFromGit/mysite/HelloWorldApp/views.py || exit 0"
+    }
+
+}
+job("project_test/Build") {
+    logRotator(-1, 10)
+
+    triggers {
+        // githubPush()
+        scm('H/2 * * * *')
+    }
+    steps{
+        shell "echo 'buils code'"
+    }
+
+}
+job("project_test/deploy") {
+    logRotator(-1, 10)
+
+    triggers {
+        // githubPush()
+        scm('H/2 * * * *')
+    }
+    steps{
+        shell "echo 'deploy code'"
+    }
+
+}
+
