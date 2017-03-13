@@ -34,7 +34,7 @@ job("project_test/test") {
     }
 
 }
-job("project_test/Build") {
+job("project_test/build") {
     logRotator(-1, 10)
 
     triggers {
