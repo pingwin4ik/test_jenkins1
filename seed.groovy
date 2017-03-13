@@ -46,3 +46,11 @@ job("${folderName}/createBuldTestJobs") {
         }
     }
 }
+pipelineJob("${folderName}-pipeline") {
+    definition {
+        cps {
+            script(readFileFromWorkspace("${pathWorkspace}/pipeline/first.groovy"))
+            sandbox()
+        }
+    }
+}

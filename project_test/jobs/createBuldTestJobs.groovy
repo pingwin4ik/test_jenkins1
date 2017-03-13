@@ -5,7 +5,7 @@ import hudson.*
 
 
 
-job("${pathWorkspace}/${folderName}/test") {
+job("project_test/test") {
     logRotator(-1, 10)
 
     triggers {
@@ -13,7 +13,7 @@ job("${pathWorkspace}/${folderName}/test") {
         scm('H/2 * * * *')
     }
     steps{
-        shell "ls -al ${pathWorkspace}/${folderName}"
+        shell "ls -al /var/lib/jenkins/workspace/cloneFromGit"
     }
 //    steps {
 //
